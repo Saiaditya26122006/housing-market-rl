@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.claude/
+models/
+results/
+venv/
+*.egg-info/
+.env
+*.Zone.Identifier
