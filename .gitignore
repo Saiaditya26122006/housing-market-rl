@@ -2,7 +2,7 @@ __pycache__/
 *.pyc
 .claude/
 models/
-results/*.json
+results/scenario_*.json
 venv/
 *.egg-info/
 .env
