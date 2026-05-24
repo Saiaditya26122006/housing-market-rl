@@ -124,7 +124,7 @@ TRAINING: dict = {
     "ppo_learning_rate": 3e-4,
     "ppo_n_steps": 2048,
     "ppo_batch_size": 64,
-    "ppo_n_epochs": 10,
+    "ppo_n_epochs": 50,
     "net_arch": [64, 64],
     "device": "cpu",
 }

@@ -175,23 +175,31 @@ class PolicyMakerWrapper(gymnasium.Env):
 
 
 class LoggingCallback(BaseCallback):
-    """Logs mean reward every N steps."""
+    """Logs mean reward every N steps and tracks learning curve data."""
 
-    def __init__(self, agent_type: str, log_interval: int = 5000, verbose: int = 0):
+    def __init__(self, agent_type: str, log_interval: int = 2000, verbose: int = 0):
         super().__init__(verbose)
         self.agent_type = agent_type
         self.log_interval = log_interval
+        self.timesteps_log = []
+        self.rewards_log = []
+        self.ep_len_log = []
 
     def _on_step(self) -> bool:
         if self.num_timesteps % self.log_interval == 0:
-            infos = self.locals.get("infos", [])
             if self.model.ep_info_buffer:
                 mean_reward = np.mean(
                     [ep["r"] for ep in self.model.ep_info_buffer]
                 )
+                mean_len = np.mean(
+                    [ep["l"] for ep in self.model.ep_info_buffer]
+                )
+                self.timesteps_log.append(self.num_timesteps)
+                self.rewards_log.append(mean_reward)
+                self.ep_len_log.append(mean_len)
                 logger.info(
                     f"[{self.agent_type}] step={self.num_timesteps} "
-                    f"mean_reward={mean_reward:.2f}"
+                    f"mean_reward={mean_reward:.2f} ep_len={mean_len:.0f}"
                 )
         return True
 
@@ -219,7 +227,11 @@ def _representative_agent_id(env: HousingMarketEnv, agent_type: str) -> str:
     return f"{agent_type}_0"
 
 
-def train_stage1(preset_name: str | None = None, seed: int | None = None) -> dict:
+def train_stage1(
+    preset_name: str | None = None,
+    seed: int | None = None,
+    callbacks_out: dict | None = None,
+) -> dict:
     """Train household agents independently against heuristic opponents."""
     models_dir = Path(config.PATHS["models_dir"])
     models_dir.mkdir(parents=True, exist_ok=True)
@@ -247,6 +259,8 @@ def train_stage1(preset_name: str | None = None, seed: int | None = None) -> dic
         logger.info(f"Stage 1: {agent_type} saved to {save_path}.zip")
 
         trained_models[agent_type] = model
+        if callbacks_out is not None:
+            callbacks_out[agent_type] = callback
 
     return trained_models
 
@@ -255,6 +269,7 @@ def train_stage2(
     stage1_models: dict,
     preset_name: str | None = None,
     seed: int | None = None,
+    callbacks_out: dict | None = None,
 ) -> PPO:
     """Train Policy Maker against frozen household policies."""
     models_dir = Path(config.PATHS["models_dir"])
@@ -276,6 +291,9 @@ def train_stage2(
     save_path = config.PATHS["policymaker_policy"]
     model.save(save_path)
     logger.info(f"Stage 2: government saved to {save_path}.zip")
+
+    if callbacks_out is not None:
+        callbacks_out["government"] = callback
 
     return model
 
@@ -313,21 +331,108 @@ def get_policy_callable(model: PPO) -> callable:
     return _predict
 
 
+def plot_training_curves(callbacks: dict, save_path: str = "results/training_curves.png"):
+    """Generate and save training reward curves for all agent types."""
+    import matplotlib.pyplot as plt
+
+    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+    axes = axes.flatten()
+
+    agent_types = list(callbacks.keys())
+    colors = {
+        "displaced": "#ff7f0e",
+        "renter": "#1f77b4",
+        "owner": "#2ca02c",
+        "investor": "#d62728",
+        "government": "#9467bd",
+    }
+
+    for idx, agent_type in enumerate(agent_types):
+        cb = callbacks[agent_type]
+        ax = axes[idx]
+
+        if cb.timesteps_log:
+            ax.plot(
+                cb.timesteps_log, cb.rewards_log,
+                color=colors.get(agent_type, "black"),
+                linewidth=1.5,
+            )
+            ax.fill_between(
+                cb.timesteps_log, cb.rewards_log,
+                alpha=0.15, color=colors.get(agent_type, "black"),
+            )
+            ax.set_xlabel("Timesteps")
+            ax.set_ylabel("Mean Episode Reward")
+            ax.set_title(f"{agent_type.capitalize()} Agent")
+            ax.grid(True, alpha=0.3)
+
+            if len(cb.rewards_log) > 1:
+                start_r = cb.rewards_log[0]
+                end_r = cb.rewards_log[-1]
+                ax.axhline(y=start_r, linestyle="--", alpha=0.4, color="gray")
+                ax.annotate(
+                    f"start: {start_r:.1f}",
+                    xy=(cb.timesteps_log[0], start_r),
+                    fontsize=8, color="gray",
+                )
+                ax.annotate(
+                    f"final: {end_r:.1f}",
+                    xy=(cb.timesteps_log[-1], end_r),
+                    fontsize=8, color=colors.get(agent_type, "black"),
+                    fontweight="bold",
+                )
+        else:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(f"{agent_type.capitalize()} Agent")
+
+    if len(agent_types) < 6:
+        axes[5].axis("off")
+
+    fig.suptitle(
+        f"Training Curves (PPO, {config.TRAINING['ppo_n_epochs']} epochs, "
+        f"lr={config.TRAINING['ppo_learning_rate']})",
+        fontsize=14, fontweight="bold",
+    )
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    logger.info(f"Training curves saved to {save_path}")
+    return save_path
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train housing market RL agents")
     parser.add_argument("--stage1-only", action="store_true")
     parser.add_argument("--stage2-only", action="store_true")
     parser.add_argument("--preset", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--quick-test", action="store_true",
+                        help="Override all timesteps to 500 for smoke testing")
     args = parser.parse_args()
+
+    if args.quick_test:
+        for key in config.TRAINING["stage1_timesteps"]:
+            config.TRAINING["stage1_timesteps"][key] = 500
+        config.TRAINING["stage2_timesteps"] = 500
+
+    all_callbacks = {}
 
     if args.stage2_only:
         logger.info("Loading Stage 1 models for Stage 2...")
         stage1_models = load_models()
         stage1_models.pop("government", None)
-        train_stage2(stage1_models, preset_name=args.preset, seed=args.seed)
+        train_stage2(stage1_models, preset_name=args.preset, seed=args.seed,
+                     callbacks_out=all_callbacks)
     elif args.stage1_only:
-        train_stage1(preset_name=args.preset, seed=args.seed)
+        train_stage1(preset_name=args.preset, seed=args.seed,
+                     callbacks_out=all_callbacks)
     else:
-        stage1_models = train_stage1(preset_name=args.preset, seed=args.seed)
-        train_stage2(stage1_models, preset_name=args.preset, seed=args.seed)
+        stage1_models = train_stage1(preset_name=args.preset, seed=args.seed,
+                                     callbacks_out=all_callbacks)
+        train_stage2(stage1_models, preset_name=args.preset, seed=args.seed,
+                     callbacks_out=all_callbacks)
+
+    if all_callbacks:
+        plot_training_curves(all_callbacks)
