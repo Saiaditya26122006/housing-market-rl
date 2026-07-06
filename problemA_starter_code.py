@@ -977,7 +977,6 @@ class MultiAgentHousingEnv(ParallelEnv):
                     if house.status == "rented":
                         rental_income += house.rent
                         props["wealth"] += house.rent
-                print(f"---> Owned houwses: {owned_houses}")
                 props["rental_income"] = rental_income
                 if props["total_investment"] > 0:
                     roi = (rental_income / props["total_investment"]) * 100

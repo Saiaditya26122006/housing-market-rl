@@ -71,6 +71,11 @@ def compute_displaced_reward(agent_props: dict, env_state: dict) -> float:
             1.0 + w["duration_multiplier"] * steps_displaced
         )
 
+        wealth = agent_props.get("wealth", 0.0)
+        avg_rent = env_state.get("avg_house_price", 300000.0) * 0.005
+        if avg_rent > 0 and wealth > avg_rent * 0.5:
+            reward += 2.0
+
     return reward
 
 

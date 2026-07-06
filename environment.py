@@ -116,6 +116,7 @@ class HousingMarketEnv(MultiAgentHousingEnv):
             props = self.agent_properties.get(agent_id)
             if props and props.get("type") == "owner":
                 self.prev_equity[agent_id] = props.get("equity", 0.0)
+        self._prev_equity_snapshot = dict(self.prev_equity)
 
         self.capital_gain = {}
         for agent_id in self.agents:
@@ -179,10 +180,13 @@ class HousingMarketEnv(MultiAgentHousingEnv):
             )
 
         self._apply_salary_growth()
+        self._apply_price_noise()
         self._decay_informal_activity()
 
         if self.seasonal_steps_remaining > 0:
             self.seasonal_steps_remaining -= 1
+
+        self._prev_equity_snapshot = dict(self.prev_equity)
 
         for agent_id in list(self.prev_equity.keys()):
             props = self.agent_properties.get(agent_id)
@@ -355,7 +359,7 @@ class HousingMarketEnv(MultiAgentHousingEnv):
                     props, env_state
                 )
             elif agent_type == "owner":
-                prev_eq = self.prev_equity.get(agent_id, 0.0)
+                prev_eq = self._prev_equity_snapshot.get(agent_id, 0.0)
                 rewards[agent_id] = agents_module.compute_owner_reward(
                     props, prev_eq, env_state
                 )
@@ -411,6 +415,10 @@ class HousingMarketEnv(MultiAgentHousingEnv):
             agent_type = props.get("type", "")
             growth_rate = config.SALARY_GROWTH.get(agent_type, 0.0)
             props["income"] *= 1.0 + growth_rate / self.max_steps
+
+    def _apply_price_noise(self) -> None:
+        for house in self.housing_stock:
+            house.price *= 1.0 + np.random.uniform(-0.005, 0.005)
 
     def _tick_seasonal_spike(self) -> None:
         self.seasonal_steps_remaining = config.SEASONAL_DEMAND[

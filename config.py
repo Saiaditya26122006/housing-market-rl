@@ -94,8 +94,8 @@ REWARD_WEIGHTS: dict = {
     },
     "investor": {
         "rental_income_scale": 1.5,
-        "mortgage_cost_scale": -1.0,
-        "maintenance_cost_scale": -0.5,
+        "mortgage_cost_scale": -0.001,
+        "maintenance_cost_scale": -0.001,
         "capital_gains_scale": 2.0,
         "vacancy_penalty": -3.0,
     },
@@ -114,10 +114,10 @@ REWARD_WEIGHTS: dict = {
 
 TRAINING: dict = {
     "stage1_timesteps": {
-        "displaced": 50000,
+        "displaced": 100000,
         "renter": 50000,
-        "owner": 50000,
-        "investor": 50000,
+        "owner": 100000,
+        "investor": 100000,
         "government": 100000,
     },
     "stage2_timesteps": 200000,
